@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simple Match-3 Game</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;  
+            margin: 0;
+            background-color: #f0f0f0;
+        }
+        #game-container {
+            text-align: center;
+        }
+        /* Fixed size grid for absolute positioning */
+        #grid {
+            width: 335px; /* (5 * 60) + (4 * 5) + 2*10 */
+            height: 335px;
+            position: relative;
+            margin-top: 20px;
+            background-color: #bbada0;
+            padding: 10px;
+            border-radius: 5px;
+            overflow: hidden;
+        }
+        .tile {
+            width: 60px;
+            height: 60px;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: top 0.2s, left 0.2s;
+            transform-origin: center;
+            position: absolute;
+            box-sizing: border-box;
+        }
+        .tile:hover {
+            opacity: 0.8;
+        }
+        .selected {
+            border: 3px solid #333;
+        }
+        /* Animation Styles */
+        .particle {
+            position: absolute;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            pointer-events: none;
+            z-index: 1000;
+            animation: particle-fade 0.6s ease-out forwards;
+        }
+        @keyframes particle-fade {
+            0% { transform: translate(0, 0) scale(1); opacity: 1; }
+            100% { transform: translate(var(--tx), var(--ty)) scale(0); opacity: 0; }
+        }
+        #score {
+            font-size: 24px;
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div id="game-container">
+        <div id="score">Score: 0</div>
+        <div id="grid"></div>
+        <button onclick="initGame()" style="margin-top: 20px; padding: 10px 20px; font-size: 16px;">Reset Game</button>
+    </div>
+
+    <script>
+        const GRID_SIZE = 5;
+        const TILE_SIZE = 60;
+        const GAP = 5;
+        const PADDING = 10;
+        // Reduced to 3 colors
+        const COLORS = ['#ff6b6b', '#4ecdc4', '#45b7d1'];
+
+        let grid = []; // grid[r][c] = { element, color }
+        let score = 0;
+        let selectedTile = null;
+        let isProcessing = false;
+
+        function getTilePosition(row, col) {
+            return {
+                top: PADDING + row * (TILE_SIZE + GAP),
+                left: PADDING + col * (TILE_SIZE + GAP)
+            };
+        }
+
+        function initGame() {
+            const gridElement = document.getElementById('grid');
+            gridElement.innerHTML = '';
+            grid = [];
+            score = 0;
+            updateScore();
+            selectedTile = null;
+            isProcessing = false;
+
+            for (let r = 0; r < GRID_SIZE; r++) {
+                grid[r] = [];
+                for (let c = 0; c < GRID_SIZE; c++) {
+                    grid[r][c] = null;
+                }
+            }
+
+            // Create initial tiles
+            for (let r = 0; r < GRID_SIZE; r++) {
+                for (let c = 0; c < GRID_SIZE; c++) {
+                    grid[r][c] = null;
+                }
+            }
+
+            // Create initial tiles
+            for (let r = 0; r < GRID_SIZE; r++) {
+                for (let c = 0; c < GRID_SIZE; c++) {
+                    createTile(r, c, COLORS[Math.floor(Math.random() * COLORS.length)]);
+                }
+            }
+
+            // Avoid starting matches
+            let attempts = 0;
+            while (checkMatches().length > 0 && attempts < 50) {
+                gridElement.innerHTML = '';
+                for (let r = 0; r < GRID_SIZE; r++) {
+                    for (let c = 0; c < GRID_SIZE; c++) {
+                        grid[r][c] = null;
+                    }
+                }
+                for (let r = 0; r < GRID_SIZE; r++) {
+                    for (let c = 0; c < GRID_SIZE; c++) {
+                        createTile(r, c, COLORS[Math.floor(Math.random() * COLORS.length)]);
+                    }
+                }
+                attempts++;
+            }
+        }
+
+        function createTile(row, col, color) {
+            const tile = document.createElement('div');
+            tile.className = 'tile';
+            tile.style.backgroundColor = color;
+            tile.dataset.color = color;
+            const pos = getTilePosition(row, col);
+            tile.style.top = pos.top + 'px';
+            tile.style.left = pos.left + 'px';
+            document.getElementById('grid').appendChild(tile);
+            grid[row][col] = { element: tile, color };
+            tile.onclick = () => handleTileClick(row, col);
+        }
+
+        async function animateSwap(r1, c1, r2, c2, onSwap) {
+            return new Promise(resolve => {
+                const a = grid[r1][c1];
+                const b = grid[r2][c2];
+                if (!a || !b) { resolve(); return; }
+                const pos1 = getTilePosition(r1, c1);
+                const pos2 = getTilePosition(r2, c2);
+                a.element.style.transition = 'top 0.2s, left 0.2s';
+                b.element.style.transition = 'top 0.2s, left 0.2s';
+                a.element.style.top = pos2.top + 'px';
+                a.element.style.left = pos2.left + 'px';
+                b.element.style.top = pos1.top + 'px';
+                b.element.style.left = pos1.left + 'px';
+                setTimeout(() => {
+                    if (onSwap) onSwap();
+                    resolve();
+                }, 200);
+            });
+        }
+
+        function swapTiles(r1, c1, r2, c2) {
+            const temp = grid[r1][c1];
+            grid[r1][c1] = grid[r2][c2];
+            grid[r2][c2] = temp;
+            updateTileClick(r1, c1);
+            updateTileClick(r2, c2);
+        }
+
+        function updateTileClick(r, c) {
+            if (grid[r][c]) {
+                grid[r][c].element.onclick = () => handleTileClick(r, c);
+            }
+        }
+
+        function createExplosion(tile, color) {
+            const rect = tile.getBoundingClientRect();
+            const centerX = rect.left + rect.width / 2 + window.scrollX;
+            const centerY = rect.top + rect.height / 2 + window.scrollY;
+            for (let i = 0; i < 15; i++) {
+                const particle = document.createElement('div');
+                particle.className = 'particle';
+                particle.style.backgroundColor = color;
+                particle.style.left = centerX + 'px';
+                particle.style.top = centerY + 'px';
+                const angle = Math.random() * Math.PI * 2;
+                const distance = 40 + Math.random() * 60;
+                const tx = Math.cos(angle) * distance;
+                const ty = Math.sin(angle) * distance;
+                particle.style.setProperty('--tx', `${tx}px`);
+                particle.style.setProperty('--ty', `${ty}px`);
+                document.body.appendChild(particle);
+                setTimeout(() => particle.remove(), 600);
+            }
+        }
+
+        function checkMatches() {
+            const matches = [];
+            // rows
+            for (let r = 0; r < GRID_SIZE; r++) {
+                for (let c = 0; c < GRID_SIZE - 2; c++) {
+                    if (!grid[r][c] || !grid[r][c+1] || !grid[r][c+2]) continue;
+                    const c1 = grid[r][c].color;
+                    const c2 = grid[r][c+1].color;
+                    const c3 = grid[r][c+2].color;
+                    if (c1 === c2 && c2 === c3) {
+                        matches.push({r, c}, {r, c: c+1}, {r, c: c+2});
+                    }
+                }
+            }
+            // cols
+            for (let c = 0; c < GRID_SIZE; c++) {
+                for (let r = 0; r < GRID_SIZE - 2; r++) {
+                    if (!grid[r][c] || !grid[r+1][c] || !grid[r+2][c]) continue;
+                    const c1 = grid[r][c].color;
+                    const c2 = grid[r+1][c].color;
+                    const c3 = grid[r+2][c].color;
+                    if (c1 === c2 && c2 === c3) {
+                        matches.push({r, c}, {r: r+1, c}, {r: r+2, c});
+                    }
+                }
+            }
+            return matches;
+        }
+
+        async function handleTileClick(row, col) {
+            if (isProcessing) return;
+            const item = grid[row][col];
+            if (!item) return;
+            if (selectedTile === null) {
+                selectedTile = { row, col };
+                item.element.classList.add('selected');
+            } else {
+                const { row: pr, col: pc } = selectedTile;
+                const prev = grid[pr][pc];
+                if (prev) prev.element.classList.remove('selected');
+                selectedTile = null;
+                if (Math.abs(row - pr) + Math.abs(col - pc) === 1) {
+                    isProcessing = true;
+                    await animateSwap(pr, pc, row, col, () => swapTiles(row, col, pr, pc));
+                    const matches = checkMatches();
+                    if (matches.length > 0) {
+                        await removeMatches(matches);
+                    } else {
+                        await animateSwap(pr, pc, row, col, () => swapTiles(row, col, pr, pc));
+                        isProcessing = false;
+                    }
+                }
+            }
+        }
+
+        async function removeMatches(matches) {
+            const unique = [];
+            const seen = new Set();
+            matches.forEach(m => {
+                const key = `${m.r}-${m.c}`;
+                if (!seen.has(key)) { seen.add(key); unique.push(m); }
+            });
+            score += unique.length * 10;
+            updateScore();
+
+            unique.forEach(m => {
+                const item = grid[m.r][m.c];
+                if (item) {
+                    createExplosion(item.element, item.color);
+                    item.element.remove();
+                    grid[m.r][m.c] = null;
+                }
+            });
+
+            await new Promise(r => setTimeout(r, 200));
+            await applyGravity();
+        }
+
+        async function applyGravity() {
+            for (let c = 0; c < GRID_SIZE; c++) {
+                let empty = 0;
+                for (let r = GRID_SIZE - 1; r >= 0; r--) {
+                    if (grid[r][c] === null) {
+                        empty++;
+                    } else if (empty > 0) {
+                        const item = grid[r][c];
+                        const newRow = r + empty;
+                        grid[newRow][c] = item;
+                        grid[r][c] = null;
+                        const pos = getTilePosition(newRow, c);
+                        item.element.style.transition = 'top 0.4s ease-in';
+                        item.element.style.top = pos.top + 'px';
+                        updateTileClick(newRow, c);
+                    }
+                }
+                // fill new tiles
+                for (let i = 0; i < empty; i++) {
+                    const color = COLORS[Math.floor(Math.random() * COLORS.length)];
+                    const tile = document.createElement('div');
+                    tile.className = 'tile';
+                    tile.style.backgroundColor = color;
+                    tile.dataset.color = color;
+                    const destRow = i;
+                    const startTop = PADDING - (empty - i) * (TILE_SIZE + GAP);
+                    const destPos = getTilePosition(destRow, c);
+                    tile.style.top = startTop + 'px';
+                    tile.style.left = destPos.left + 'px';
+                    document.getElementById('grid').appendChild(tile);
+                    grid[destRow][c] = { element: tile, color };
+                    updateTileClick(destRow, c);
+                    void tile.offsetHeight;
+                    tile.style.transition = 'top 0.4s ease-in';
+                    tile.style.top = destPos.top + 'px';
+                }
+            }
+            await new Promise(r => setTimeout(r, 450));
+            const newMatches = checkMatches();
+            if (newMatches.length > 0) {
+                await removeMatches(newMatches);
+            } else {
+                isProcessing = false;
+            }
+        }
+
+        function updateScore() {
+            document.getElementById('score').innerText = 'Score: ' + score;
+        }
+
+        initGame();
+    </script>
+</body>
+</html>
