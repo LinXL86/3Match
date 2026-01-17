@@ -19,8 +19,8 @@
         }
         /* Fixed size grid for absolute positioning */
         #grid {
-            width: 335px; /* (5 * 60) + (4 * 5) + 2*10 */
-            height: 335px;
+            width: 470px; /* (7 * 60) + (6 * 5) + 2*10 */
+            height: 470px;
             position: relative;
             margin-top: 20px;
             background-color: #bbada0;
@@ -72,12 +72,12 @@
     </div>
 
     <script>
-        const GRID_SIZE = 5;
+        const GRID_SIZE = 7;
         const TILE_SIZE = 60;
         const GAP = 5;
         const PADDING = 10;
-        // Reduced to 3 colors
-        const COLORS = ['#ff6b6b', '#4ecdc4', '#45b7d1'];
+        // Reduced to 3 colors -> Changed to 4 colors
+        const COLORS = ['#ff6b6b', '#4ecdc4', '#45b7d1', '#feca57'];
 
         let grid = []; // grid[r][c] = { element, color }
         let score = 0;
